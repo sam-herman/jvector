@@ -11,6 +11,9 @@
     </parent>
     <artifactId>jvector-native</artifactId>
     <name>Native</name>
+    <properties>
+        <maven.install.skip>false</maven.install.skip>
+    </properties>
     <build>
         <plugins>
             <plugin>
