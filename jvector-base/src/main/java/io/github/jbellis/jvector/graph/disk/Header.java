@@ -64,7 +64,7 @@ public class Header {
         return size;
     }
 
-    static Header load(RandomAccessReader reader, long offset) throws IOException {
+    public static Header load(RandomAccessReader reader, long offset) throws IOException {
         reader.seek(offset);
 
         EnumSet<FeatureId> featureIds;
