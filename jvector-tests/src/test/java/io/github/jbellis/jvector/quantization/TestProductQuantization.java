@@ -19,19 +19,27 @@ package io.github.jbellis.jvector.quantization;
 import com.carrotsearch.randomizedtesting.RandomizedTest;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakScope;
 import io.github.jbellis.jvector.disk.SimpleMappedReader;
-import io.github.jbellis.jvector.graph.ListRandomAccessVectorValues;
+import io.github.jbellis.jvector.graph.*;
+import io.github.jbellis.jvector.graph.similarity.BuildScoreProvider;
+import io.github.jbellis.jvector.graph.similarity.DefaultSearchScoreProvider;
+import io.github.jbellis.jvector.graph.similarity.ScoreFunction;
+import io.github.jbellis.jvector.graph.similarity.SearchScoreProvider;
+import io.github.jbellis.jvector.util.Bits;
 import io.github.jbellis.jvector.vector.VectorSimilarityFunction;
 import io.github.jbellis.jvector.vector.VectorUtil;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -303,5 +311,101 @@ public class TestProductQuantization extends RandomizedTest {
         // Test invalid inputs
         assertThrows(IllegalArgumentException.class, () -> PQVectors.calculateChunkParameters(-1, 8));
         assertThrows(IllegalArgumentException.class, () -> PQVectors.calculateChunkParameters(100, -1));
+    }
+
+    /**
+     * Will test the graph construction of the index when we are using PQ based score provider
+     */
+    @Test
+    public void testGraphConstructionWithPQVectors() throws IOException {
+        int dimension = 16;
+        int vectorCount = 10000;
+        int maxConn = 32;
+        int beamWidth = 100;
+        float alpha = 1.2f;
+        float degreeOverflow = 1.2f;
+        int k = 50;
+        int overQueryFactor = 50000;
+        int rerankK = k * overQueryFactor;
+        VectorSimilarityFunction similarityFunction = VectorSimilarityFunction.EUCLIDEAN;
+
+        List<VectorFloat<?>> vectors = getMonotonicallyIncreasingVectors(vectorCount, dimension);
+        RandomAccessVectorValues randomAccessVectors = new ListRandomAccessVectorValues(vectors, dimension);
+
+        // Build the graph
+        ProductQuantization pq = ProductQuantization.compute(randomAccessVectors, 16, DEFAULT_CLUSTERS, true);
+        PQVectors pqVectors = (PQVectors) pq.encodeAll(randomAccessVectors);
+        BuildScoreProvider buildScoreProvider = BuildScoreProvider.pqBuildScoreProvider(similarityFunction, pqVectors);
+        final GraphIndexBuilder graphIndexBuilder = new GraphIndexBuilder(
+                buildScoreProvider,
+                dimension,
+                maxConn,
+                beamWidth,
+                degreeOverflow,
+                alpha,
+                false
+        );
+
+        OnHeapGraphIndex onHeapGraphIndex = graphIndexBuilder.build(randomAccessVectors);
+
+
+        // Run the search on the OnHeapGraph
+        VectorFloat<?> query = generateZerosVectorWithLastValue(dimension, 0);
+        ScoreFunction.ExactScoreFunction reranker = randomAccessVectors.rerankerFor(query, similarityFunction);
+
+        ScoreFunction.ApproximateScoreFunction asf = pqVectors.precomputedScoreFunctionFor(
+                query,
+                VectorSimilarityFunction.EUCLIDEAN
+        );
+        SearchScoreProvider ssp = new DefaultSearchScoreProvider(asf, reranker);
+
+        try (GraphSearcher graphSearcher = new GraphSearcher(onHeapGraphIndex)) {
+            SearchResult searchResult = graphSearcher.search(
+                    ssp,
+                    k,
+                    rerankK,
+                    0,
+                    0,
+                    Bits.ALL);
+
+            Assert.assertEquals(String.format("Number of results %s, is lower than expected %s", searchResult.getNodes().length, k), k, searchResult.getNodes().length);
+            float recall = calculateRecall(searchResult, similarityFunction.compare(query, vectors.get(k - 1)));
+            Assert.assertTrue(String.format("Recall: %s, is lower than expected: %s", recall, 0.99f), recall > 0.99f);
+            Assert.assertEquals(String.format("Re-ranked count: %s is not the same as expected: %s", searchResult.getRerankedCount(), vectorCount), vectorCount, searchResult.getRerankedCount());
+        }
+
+    }
+
+    private static List<VectorFloat<?>> getMonotonicallyIncreasingVectors(int numVectors, int vectorDimension) {
+        final List<VectorFloat<?>> vectors = new ArrayList<>(numVectors);
+        for (int i = 0; i < numVectors; i++) {
+            vectors.add(generateZerosVectorWithLastValue(vectorDimension, i));
+        }
+
+        return vectors;
+    }
+
+    private static VectorFloat<?> generateZerosVectorWithLastValue(int vectorDimension, int lastValue) {
+        return vectorTypeSupport.createFloatVector(generateZerosFloatWithLastValue(vectorDimension, lastValue));
+    }
+
+    private static float[] generateZerosFloatWithLastValue(int vectorDimension, int lastValue) {
+        float[] vector = new float[vectorDimension];
+        for (int i = 0; i < vectorDimension - 1; i++) {
+            vector[i] = 0;
+        }
+        vector[vectorDimension - 1] = lastValue;
+        return vector;
+    }
+
+    private float calculateRecall(SearchResult searchResult, float expectedMinScore) {
+        int foundInRange = 0;
+        int total = searchResult.getNodes().length;
+        for (SearchResult.NodeScore nodeScore : searchResult.getNodes()) {
+            if (nodeScore.score >= expectedMinScore) {
+                foundInRange++;
+            }
+        }
+        return (float) foundInRange / (float) total;
     }
 }
