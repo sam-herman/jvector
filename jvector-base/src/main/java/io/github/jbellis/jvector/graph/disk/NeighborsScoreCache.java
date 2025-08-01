@@ -1,5 +1,23 @@
+/*
+ * Copyright DataStax, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package io.github.jbellis.jvector.graph.disk;
 
+import io.github.jbellis.jvector.disk.IndexWriter;
+import io.github.jbellis.jvector.disk.RandomAccessReader;
 import io.github.jbellis.jvector.graph.*;
 
 import java.io.IOException;
@@ -30,11 +48,52 @@ public class NeighborsScoreCache {
         }
     }
 
-    public NodeArray getNeighborsScore(int node, int level) {
-        return perLevelNeighborsScoreCache.get(level).get(node);
+    public NeighborsScoreCache(RandomAccessReader in) throws IOException {
+        final int numberOfLevels = in.readInt();
+        perLevelNeighborsScoreCache = new HashMap<>(numberOfLevels);
+        for (int i = 0; i < numberOfLevels; i++) {
+            final int level = in.readInt();
+            final int numberOfNodesInLevel = in.readInt();
+            final Map<Integer, NodeArray> levelNeighborsScores = new HashMap<>(numberOfNodesInLevel);
+            for (int j = 0; j < numberOfNodesInLevel; j++) {
+                final int nodeId = in.readInt();
+                final int numberOfNeighbors = in.readInt();
+                final NodeArray nodeArray = new NodeArray(numberOfNeighbors);
+                for (int k = 0; k < numberOfNeighbors; k++) {
+                    final int neighborNodeId = in.readInt();
+                    final float neighborScore = in.readFloat();
+                    nodeArray.insertSorted(neighborNodeId, neighborScore);
+                }
+                levelNeighborsScores.put(nodeId, nodeArray);
+            }
+            perLevelNeighborsScoreCache.put(level, levelNeighborsScores);
+        }
+    }
+
+    public void write(IndexWriter out) throws IOException {
+        out.writeInt(perLevelNeighborsScoreCache.size()); // write the number of levels
+        for (Map.Entry<Integer ,Map<Integer, NodeArray>> levelNeighborsScores : perLevelNeighborsScoreCache.entrySet()) {
+            final int level = levelNeighborsScores.getKey();
+            out.writeInt(level);
+            out.writeInt(levelNeighborsScores.getValue().size()); // write the number of nodes in the level
+            // Write the neighborhoods for each node in the level
+            for (Map.Entry<Integer, NodeArray> nodeArrayEntry : levelNeighborsScores.getValue().entrySet()) {
+                final int nodeId = nodeArrayEntry.getKey();
+                out.writeInt(nodeId);
+                final NodeArray nodeArray = nodeArrayEntry.getValue();
+                out.writeInt(nodeArray.size()); // write the number of neighbors for the node
+                // Write the nodeArray(neighbors)
+                for (int i = 0; i < nodeArray.size(); i++) {
+                    out.writeInt(nodeArray.getNode(i));
+                    out.writeFloat(nodeArray.getScore(i));
+                }
+            }
+        }
     }
 
     public Map<Integer, NodeArray> getNeighborsScoresInLevel(int level) {
         return perLevelNeighborsScoreCache.get(level);
     }
+
+
 }

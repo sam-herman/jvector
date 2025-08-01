@@ -1,9 +1,26 @@
+/*
+ * Copyright DataStax, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package io.github.jbellis.jvector.graph;
 
 import com.carrotsearch.randomizedtesting.RandomizedTest;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakScope;
 import io.github.jbellis.jvector.TestUtil;
 import io.github.jbellis.jvector.disk.SimpleMappedReader;
+import io.github.jbellis.jvector.disk.SimpleWriter;
 import io.github.jbellis.jvector.graph.disk.NeighborsScoreCache;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.similarity.BuildScoreProvider;
@@ -114,19 +131,31 @@ public class OnHeapGraphIndexTest extends RandomizedTest  {
      */
     @Test
     public void testReconstructionOfOnHeapGraphIndex() throws IOException {
-        var outputPath = testDirectory.resolve("testReconstructionOfOnHeapGraphIndex_" + baseGraphIndex.getClass().getSimpleName());
-        log.info("Writing graph to {}", outputPath);
+        var graphOutputPath = testDirectory.resolve("testReconstructionOfOnHeapGraphIndex_" + baseGraphIndex.getClass().getSimpleName());
+        var neighborsScoreCacheOutputPath = testDirectory.resolve("testReconstructionOfOnHeapGraphIndex_" + NeighborsScoreCache.class.getSimpleName());
+        log.info("Writing graph to {}", graphOutputPath);
+        TestUtil.writeGraph(baseGraphIndex, baseVectorsRavv, graphOutputPath);
+
+        log.info("Writing neighbors score cache to {}", neighborsScoreCacheOutputPath);
         final NeighborsScoreCache neighborsScoreCache = new NeighborsScoreCache(baseGraphIndex);
-        TestUtil.writeGraph(baseGraphIndex, baseVectorsRavv, outputPath);
-        try (var readerSupplier = new SimpleMappedReader.Supplier(outputPath.toAbsolutePath());
-             var onDiskGraph = OnDiskGraphIndex.load(readerSupplier))
-        {
+        try (SimpleWriter writer = new SimpleWriter(neighborsScoreCacheOutputPath.toAbsolutePath())) {
+            neighborsScoreCache.write(writer);
+        }
+
+        log.info("Reading neighbors score cache from {}", neighborsScoreCacheOutputPath);
+        final NeighborsScoreCache neighborsScoreCacheRead;
+        try (var readerSupplier = new SimpleMappedReader.Supplier(neighborsScoreCacheOutputPath.toAbsolutePath())) {
+            neighborsScoreCacheRead = new NeighborsScoreCache(readerSupplier.get());
+        }
+
+        try (var readerSupplier = new SimpleMappedReader.Supplier(graphOutputPath.toAbsolutePath());
+             var onDiskGraph = OnDiskGraphIndex.load(readerSupplier)) {
             TestUtil.assertGraphEquals(baseGraphIndex, onDiskGraph);
             try (var onDiskView = onDiskGraph.getView()) {
                 validateVectors(onDiskView, baseVectorsRavv);
             }
 
-            OnHeapGraphIndex reconstructedOnHeapGraphIndex = OnHeapGraphIndex.convertToHeap(onDiskGraph, neighborsScoreCache, baseBuildScoreProvider, neighborOverflow, alpha);
+            OnHeapGraphIndex reconstructedOnHeapGraphIndex = OnHeapGraphIndex.convertToHeap(onDiskGraph, neighborsScoreCacheRead, baseBuildScoreProvider, neighborOverflow, alpha);
             TestUtil.assertGraphEquals(baseGraphIndex, reconstructedOnHeapGraphIndex);
             TestUtil.assertGraphEquals(onDiskGraph, reconstructedOnHeapGraphIndex);
 
