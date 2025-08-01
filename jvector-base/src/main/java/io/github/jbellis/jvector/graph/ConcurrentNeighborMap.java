@@ -375,12 +375,8 @@ public class ConcurrentNeighborMap {
             return neighbors.getNode(i++);
         }
 
-        public float currentScore() {
-            return neighbors.getScore(i);
-        }
-
-        public int currentNodeId() {
-            return neighbors.getNode(i);
+        public NodeArray merge(NodeArray other) {
+            return NodeArray.merge(neighbors, other);
         }
     }
 }

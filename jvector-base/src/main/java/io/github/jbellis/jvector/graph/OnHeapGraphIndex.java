@@ -45,6 +45,7 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
@@ -624,9 +625,6 @@ public class OnHeapGraphIndex implements GraphIndex {
                 while (nodesIterator.hasNext()) {
                     int nodeId = nodesIterator.next();
 
-                    // Add node to heap index
-                    heapIndex.addNode(new NodeAtLevel(level, nodeId));
-
                     // Copy neighbors
                     final NodeArray neighbors = levelNeighborsScoreCache.get(nodeId).copy();
 
@@ -650,29 +648,38 @@ public class OnHeapGraphIndex implements GraphIndex {
                                                NeighborsScoreCache perLevelNeighborsScoreCache,
                                    RandomAccessVectorValues newVectors,
                                    BuildScoreProvider buildScoreProvider,
-                                   int startingNodeId) throws IOException {
+                                   int startingNodeId,
+                                               int beamWidth,
+                                               float overflowRatio,
+                                               float alpha,
+                                               boolean addHierarchy) throws IOException {
 
 
 
         try (GraphIndexBuilder builder = new GraphIndexBuilder(buildScoreProvider,
                 onDiskGraphIndex,
                 perLevelNeighborsScoreCache,
-                100,
-                1.2f,
-                1.2f,
-                true,
+                beamWidth,
+                overflowRatio,
+                alpha,
+                addHierarchy,
                 true,
                 PhysicalCoreExecutor.pool(),
                 ForkJoinPool.commonPool())) {
 
             // Add each new vector incrementally
+            //final List<ForkJoinTask<?>> forkJoinTask = new ArrayList<>(newVectors.size());
             for (int i = 0; i < newVectors.size(); i++) {
                 final int nodeId = startingNodeId + i;
                 final VectorFloat<?> vector = newVectors.getVector(i);
 
                 // The GraphIndexBuilder can add nodes to an existing index
-                PhysicalCoreExecutor.pool().submit(() -> builder.addGraphNode(nodeId, vector));
+                //forkJoinTask.add(PhysicalCoreExecutor.pool().submit(() -> builder.addGraphNode(nodeId, vector)));
+                builder.addGraphNode(nodeId, vector);
             }
+            /*for (ForkJoinTask<?> task : forkJoinTask) {
+                task.join();
+            }*/
 
             builder.cleanup();
             return builder.getGraph();
