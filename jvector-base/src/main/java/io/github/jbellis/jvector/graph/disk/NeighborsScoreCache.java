@@ -19,11 +19,7 @@ public class NeighborsScoreCache {
                     final int nodeId = nodesIterator.nextInt();
 
                     ConcurrentNeighborMap.NeighborIterator neighborIterator = (ConcurrentNeighborMap.NeighborIterator) view.getNeighborsIterator(level, nodeId);
-                    final NodeArray neighbours = new NodeArray(neighborIterator.size());
-                    while (neighborIterator.hasNext()) {
-                        neighborIterator.next();
-                        neighbours.addInOrder(neighborIterator.currentNodeId(), neighborIterator.currentScore());
-                    }
+                    final NodeArray neighbours = neighborIterator.merge(new NodeArray(neighborIterator.size()));
                     levelNeighborsScores.put(nodeId, neighbours);
                 }
 
