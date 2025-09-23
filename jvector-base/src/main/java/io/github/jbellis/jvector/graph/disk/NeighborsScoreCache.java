@@ -40,7 +40,7 @@ import java.util.Map;
  * @see OnHeapGraphIndex#convertToHeap(OnDiskGraphIndex, NeighborsScoreCache, BuildScoreProvider, float, float)
  *
  * This is particularly useful when merging new nodes into an existing graph.
- * @see GraphIndexBuilder#buildAndMergeNewNodes(OnDiskGraphIndex, NeighborsScoreCache, RandomAccessVectorValues, BuildScoreProvider, int, int, float, float, boolean)
+ * @see GraphIndexBuilder#buildAndMergeNewNodes(OnDiskGraphIndex, NeighborsScoreCache, RandomAccessVectorValues, BuildScoreProvider, int, int[], int, float, float, boolean)
  */
 public class NeighborsScoreCache {
     private final Map<Integer, Map<Integer, NodeArray>> perLevelNeighborsScoreCache;

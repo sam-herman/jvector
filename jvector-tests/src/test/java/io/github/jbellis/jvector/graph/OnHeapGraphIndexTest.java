@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -175,7 +176,9 @@ public class OnHeapGraphIndexTest extends RandomizedTest  {
         try (var readerSupplier = new SimpleMappedReader.Supplier(outputPath.toAbsolutePath());
              var onDiskGraph = OnDiskGraphIndex.load(readerSupplier)) {
             TestUtil.assertGraphEquals(baseGraphIndex, onDiskGraph);
-            OnHeapGraphIndex reconstructedAllNodeOnHeapGraphIndex = GraphIndexBuilder.buildAndMergeNewNodes(onDiskGraph, neighborsScoreCache, newVectorsRavv, allBuildScoreProvider, numBaseVectors, beamWidth, neighborOverflow, alpha, addHierarchy);
+            // We will create a trivial 1:1 mapping between the new graph and the ravv
+            final int[] graphToRavvOrdMap = IntStream.range(0, allVectorsRavv.size()).toArray();
+            OnHeapGraphIndex reconstructedAllNodeOnHeapGraphIndex = GraphIndexBuilder.buildAndMergeNewNodes(onDiskGraph, neighborsScoreCache, allVectorsRavv, allBuildScoreProvider, numBaseVectors, graphToRavvOrdMap, beamWidth, neighborOverflow, alpha, addHierarchy);
 
             try (GraphSearcher reconstructedAllGraphSearcher = new GraphSearcher(reconstructedAllNodeOnHeapGraphIndex);
                  GraphSearcher allGraphSearcher = new GraphSearcher(allGraphIndex)) {
