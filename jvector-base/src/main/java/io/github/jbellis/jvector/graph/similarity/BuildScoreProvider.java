@@ -134,6 +134,58 @@ public interface BuildScoreProvider {
     }
 
     /**
+     * Returns a BSP that performs exact score comparisons using the given RandomAccessVectorValues and VectorSimilarityFunction.
+     */
+    static BuildScoreProvider randomAccessScoreProvider(RandomAccessVectorValues ravv, int[] graphToRavvOrdMap, VectorSimilarityFunction similarityFunction) {
+        // We need two sources of vectors in order to perform diversity check comparisons without
+        // colliding.  ThreadLocalSupplier makes this a no-op if the RAVV is actually un-shared.
+        var vectors = ravv.threadLocalSupplier();
+        var vectorsCopy = ravv.threadLocalSupplier();
+
+        return new BuildScoreProvider() {
+            @Override
+            public boolean isExact() {
+                return true;
+            }
+
+            @Override
+            public VectorFloat<?> approximateCentroid() {
+                var vv = vectors.get();
+                var centroid = vts.createFloatVector(vv.dimension());
+                for (int i = 0; i < vv.size(); i++) {
+                    var v = vv.getVector(i);
+                    if (v != null) { // MapRandomAccessVectorValues is not necessarily dense
+                        VectorUtil.addInPlace(centroid, v);
+                    }
+                }
+                VectorUtil.scale(centroid, 1.0f / vv.size());
+                return centroid;
+            }
+
+            @Override
+            public SearchScoreProvider searchProviderFor(VectorFloat<?> vector) {
+                var vc = vectorsCopy.get();
+                return DefaultSearchScoreProvider.exact(vector, graphToRavvOrdMap, similarityFunction, vc);
+            }
+
+            @Override
+            public SearchScoreProvider searchProviderFor(int node1) {
+                RandomAccessVectorValues randomAccessVectorValues = vectors.get();
+                var v = randomAccessVectorValues.getVector(graphToRavvOrdMap[node1]);
+                return searchProviderFor(v);
+            }
+
+            @Override
+            public SearchScoreProvider diversityProviderFor(int node1) {
+                RandomAccessVectorValues randomAccessVectorValues = vectors.get();
+                var v = randomAccessVectorValues.getVector(graphToRavvOrdMap[node1]);
+                var vc = vectorsCopy.get();
+                return DefaultSearchScoreProvider.exact(v, graphToRavvOrdMap, similarityFunction, vc);
+            }
+        };
+    }
+
+    /**
      * Returns a BSP that performs approximate score comparisons using the given PQVectors,
      * with reranking performed using RandomAccessVectorValues (which is intended to be
      * InlineVectorValues for building incrementally, but should technically

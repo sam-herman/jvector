@@ -824,18 +824,12 @@ public class GraphIndexBuilder implements Closeable {
                 PhysicalCoreExecutor.pool(),
                 ForkJoinPool.commonPool())) {
 
-            // Add each new vector incrementally
-            final List<ForkJoinTask<?>> forkJoinTask = new ArrayList<>(newVectors.size());
-            for (int i = startingNodeOffset; i < newVectors.size(); i++) {
-                final int nodeId = i;
-                final VectorFloat<?> vector = newVectors.getVector(graphToRavvOrdMap[nodeId]);
+            var vv = newVectors.threadLocalSupplier();
 
-                // The GraphIndexBuilder can add nodes to an existing index
-                forkJoinTask.add(PhysicalCoreExecutor.pool().submit(() -> builder.addGraphNode(nodeId, vector)));
-            }
-            for (ForkJoinTask<?> task : forkJoinTask) {
-                task.join();
-            }
+            // parallel graph construction from the merge documents Ids
+            PhysicalCoreExecutor.pool().submit(() -> IntStream.range(startingNodeOffset, newVectors.size()).parallel().forEach(ord -> {
+                builder.addGraphNode(ord, vv.get().getVector(graphToRavvOrdMap[ord]));
+            })).join();
 
             builder.cleanup();
             return builder.getGraph();
