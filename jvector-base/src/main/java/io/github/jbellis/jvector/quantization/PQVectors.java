@@ -123,23 +123,19 @@ public abstract class PQVectors implements CompressedVectors {
      * @param vectorCount  the number of vectors to encode
      * @param ravv         the RandomAccessVectorValues to encode
      * @param simdExecutor the ForkJoinPool to use for SIMD operations
+     * @param ordinalsMapping the graph ordinals to RAVV mapping
      * @return the PQVectors instance
      */
     public static ImmutablePQVectors encodeAndBuild(ProductQuantization pq, int vectorCount, int[] ordinalsMapping, RandomAccessVectorValues ravv, ForkJoinPool simdExecutor) {
-        // Calculate if we need to split into multiple chunks
         int compressedDimension = pq.compressedVectorSize();
-        long totalSize = (long) vectorCount * compressedDimension;
-        int vectorsPerChunk = totalSize <= PQVectors.MAX_CHUNK_SIZE ? vectorCount : PQVectors.MAX_CHUNK_SIZE / compressedDimension;
-
-        int numChunks = vectorCount / vectorsPerChunk;
-        final ByteSequence<?>[] chunks = new ByteSequence<?>[numChunks];
-        int chunkSize = vectorsPerChunk * compressedDimension;
-        for (int i = 0; i < numChunks - 1; i++)
-            chunks[i] = vectorTypeSupport.createByteSequence(chunkSize);
-
-        // Last chunk might be smaller
-        int remainingVectors = vectorCount - (vectorsPerChunk * (numChunks - 1));
-        chunks[numChunks - 1] = vectorTypeSupport.createByteSequence(remainingVectors * compressedDimension);
+        PQLayout layout = new PQLayout(vectorCount,compressedDimension);
+        final ByteSequence<?>[] chunks = new ByteSequence<?>[layout.totalChunks];
+        for (int i = 0; i < layout.fullSizeChunks; i++) {
+            chunks[i] = vectorTypeSupport.createByteSequence(layout.fullChunkBytes);
+        }
+        if (layout.lastChunkVectors > 0) {
+            chunks[layout.fullSizeChunks] = vectorTypeSupport.createByteSequence(layout.lastChunkBytes);
+        }
 
         // Encode the vectors in parallel into the compressed data chunks
         // The changes are concurrent, but because they are coordinated and do not overlap, we can use parallel streams
@@ -150,7 +146,7 @@ public abstract class PQVectors implements CompressedVectors {
                         .forEach(ordinal -> {
                             // Retrieve the slice and mutate it.
                             var localRavv = ravvCopy.get();
-                            var slice = PQVectors.get(chunks, ordinal, vectorsPerChunk, pq.getSubspaceCount());
+                            var slice = PQVectors.get(chunks, ordinal, layout.fullChunkVectors, pq.getSubspaceCount());
                             var vector = localRavv.getVector(ordinalsMapping[ordinal]);
                             if (vector != null)
                                 pq.encodeTo(vector, slice);
@@ -159,7 +155,7 @@ public abstract class PQVectors implements CompressedVectors {
                         }))
                 .join();
 
-        return new ImmutablePQVectors(pq, chunks, vectorCount, vectorsPerChunk);
+        return new ImmutablePQVectors(pq, chunks, vectorCount, layout.fullChunkVectors);
     }
 
     @Override

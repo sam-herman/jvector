@@ -603,8 +603,7 @@ public class OnHeapGraphIndex implements GraphIndex {
         OnHeapGraphIndex heapIndex = new OnHeapGraphIndex(
                 maxDegrees,
                 overflowRatio, // overflow ratio
-                new VamanaDiversityProvider(bsp, alpha), // diversity provider - can be null for basic usage
-                1000 // batch size
+                new VamanaDiversityProvider(bsp, alpha) // diversity provider - can be null for basic usage
         );
 
         // Copy all nodes and their connections from disk to heap

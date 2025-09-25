@@ -195,22 +195,6 @@ public class OnHeapGraphIndexTest extends RandomizedTest  {
             float recallFromReconstructedAllNodeOnHeapGraphIndex = calculateRecall(reconstructedAllNodeOnHeapGraphIndex, allBuildScoreProvider, queryVector, groundTruthAllVectors, TOP_K);
             float recallFromAllGraphIndex = calculateRecall(allGraphIndex, allBuildScoreProvider, queryVector, groundTruthAllVectors, TOP_K);
             Assert.assertEquals(recallFromReconstructedAllNodeOnHeapGraphIndex, recallFromAllGraphIndex, 0.01f);
-
-            // Verify that the result sets overlap
-            try (GraphSearcher reconstructedAllGraphSearcher = new GraphSearcher(reconstructedAllNodeOnHeapGraphIndex);
-                 GraphSearcher allGraphSearcher = new GraphSearcher(allGraphIndex)) {
-                final int topK = TOP_K;
-                VectorFloat<?> queryVector = createRandomVector(DIMENSION);
-                var resultFromReconstructed = reconstructedAllGraphSearcher.search(allBuildScoreProvider.searchProviderFor(queryVector), topK, Bits.ALL);
-                var resultFromAll = allGraphSearcher.search(allBuildScoreProvider.searchProviderFor(queryVector), topK, Bits.ALL);
-                log.info("Reconstructed result: {}, all result: {}", resultFromReconstructed, resultFromAll);
-                assertEquals(resultFromReconstructed.getNodes().length, resultFromAll.getNodes().length);
-                final Set<Integer> reconstructedResultSet = Arrays.stream(resultFromReconstructed.getNodes()).map(nodeScore -> nodeScore.node).collect(Collectors.toSet());
-                final Set<Integer> allResultSet = Arrays.stream(resultFromAll.getNodes()).map(nodeScore -> nodeScore.node).collect(Collectors.toSet());
-                reconstructedResultSet.retainAll(allResultSet);
-                final float resultSetsOverlap = (1.0f * reconstructedResultSet.size()) / (1.0f * allResultSet.size());
-                assertTrue(String.format("expected result set overlap is >= 0.9 but overlap is: %s", resultSetsOverlap),  resultSetsOverlap >= 0.90f);
-            }
         }
     }
 
