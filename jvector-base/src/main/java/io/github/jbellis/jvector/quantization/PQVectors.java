@@ -77,6 +77,8 @@ public abstract class PQVectors implements CompressedVectors {
      * Build a PQVectors instance from the given RandomAccessVectorValues. The vectors are encoded in parallel
      * and split into chunks to avoid exceeding the maximum array size.
      *
+     * This is a helper method for the special case where the ordinals mapping in the graph and the RAVV/PQVectors are the same.
+     *
      * @param pq           the ProductQuantization to use
      * @param vectorCount  the number of vectors to encode
      * @param ravv         the RandomAccessVectorValues to encode
@@ -84,35 +86,7 @@ public abstract class PQVectors implements CompressedVectors {
      * @return the PQVectors instance
      */
     public static ImmutablePQVectors encodeAndBuild(ProductQuantization pq, int vectorCount, RandomAccessVectorValues ravv, ForkJoinPool simdExecutor) {
-        int compressedDimension = pq.compressedVectorSize();
-        PQLayout layout = new PQLayout(vectorCount,compressedDimension);
-        final ByteSequence<?>[] chunks = new ByteSequence<?>[layout.totalChunks];
-        for (int i = 0; i < layout.fullSizeChunks; i++) {
-            chunks[i] = vectorTypeSupport.createByteSequence(layout.fullChunkBytes);
-        }
-        if (layout.lastChunkVectors > 0) {
-            chunks[layout.fullSizeChunks] = vectorTypeSupport.createByteSequence(layout.lastChunkBytes);
-        }
-
-        // Encode the vectors in parallel into the compressed data chunks
-        // The changes are concurrent, but because they are coordinated and do not overlap, we can use parallel streams
-        // and then we are guaranteed safe publication because we join the thread after completion.
-        var ravvCopy = ravv.threadLocalSupplier();
-        simdExecutor.submit(() -> IntStream.range(0, ravv.size())
-                        .parallel()
-                        .forEach(ordinal -> {
-                            // Retrieve the slice and mutate it.
-                            var localRavv = ravvCopy.get();
-                            var slice = PQVectors.get(chunks, ordinal, layout.fullChunkVectors, pq.getSubspaceCount());
-                            var vector = localRavv.getVector(ordinal);
-                            if (vector != null)
-                                pq.encodeTo(vector, slice);
-                            else
-                                slice.zero();
-                        }))
-                .join();
-
-        return new ImmutablePQVectors(pq, chunks, vectorCount, layout.fullChunkVectors);
+        return encodeAndBuild(pq, vectorCount, IntStream.range(0, vectorCount).toArray(), ravv, simdExecutor);
     }
 
     /**

@@ -25,6 +25,8 @@ import io.github.jbellis.jvector.vector.VectorizationProvider;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 
+import java.util.stream.IntStream;
+
 /**
  * Encapsulates comparing node distances for GraphIndexBuilder.
  */
@@ -83,54 +85,11 @@ public interface BuildScoreProvider {
 
     /**
      * Returns a BSP that performs exact score comparisons using the given RandomAccessVectorValues and VectorSimilarityFunction.
+     *
+     * Helper method for the special case that mapping between graph node IDs and ravv ordinals is the identity function.
      */
     static BuildScoreProvider randomAccessScoreProvider(RandomAccessVectorValues ravv, VectorSimilarityFunction similarityFunction) {
-        // We need two sources of vectors in order to perform diversity check comparisons without
-        // colliding.  ThreadLocalSupplier makes this a no-op if the RAVV is actually un-shared.
-        var vectors = ravv.threadLocalSupplier();
-        var vectorsCopy = ravv.threadLocalSupplier();
-
-        return new BuildScoreProvider() {
-            @Override
-            public boolean isExact() {
-                return true;
-            }
-
-            @Override
-            public VectorFloat<?> approximateCentroid() {
-                var vv = vectors.get();
-                var centroid = vts.createFloatVector(vv.dimension());
-                for (int i = 0; i < vv.size(); i++) {
-                    var v = vv.getVector(i);
-                    if (v != null) { // MapRandomAccessVectorValues is not necessarily dense
-                        VectorUtil.addInPlace(centroid, v);
-                    }
-                }
-                VectorUtil.scale(centroid, 1.0f / vv.size());
-                return centroid;
-            }
-
-            @Override
-            public SearchScoreProvider searchProviderFor(VectorFloat<?> vector) {
-                var vc = vectorsCopy.get();
-                return DefaultSearchScoreProvider.exact(vector, similarityFunction, vc);
-            }
-
-            @Override
-            public SearchScoreProvider searchProviderFor(int node1) {
-                RandomAccessVectorValues randomAccessVectorValues = vectors.get();
-                var v = randomAccessVectorValues.getVector(node1);
-                return searchProviderFor(v);
-            }
-
-            @Override
-            public SearchScoreProvider diversityProviderFor(int node1) {
-                RandomAccessVectorValues randomAccessVectorValues = vectors.get();
-                var v = randomAccessVectorValues.getVector(node1);
-                var vc = vectorsCopy.get();
-                return DefaultSearchScoreProvider.exact(v, similarityFunction, vc);
-            }
-        };
+        return randomAccessScoreProvider(ravv, IntStream.range(0, ravv.size()).toArray(), similarityFunction);
     }
 
     /**
